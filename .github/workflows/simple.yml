@@ -1,0 +1,96 @@
+name: Simple Flow
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "service-**/**"
+
+env:
+  GITHUB_SHA: ${{ github.sha }}
+  GITHUB_REF: ${{ github.ref }}
+  RUN_ID: ${{ github.run_number }}
+
+
+jobs:
+  # JOB to run on change detection
+  changes:
+    runs-on: ubuntu-latest    
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    steps:
+      - name: check out to repository
+        uses: actions/checkout@v3
+
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            service-fries:
+              - 'service-fries/**' 
+            service-yam:
+              - 'service-yam/**'  
+
+
+    # Set job outputs to values from filter step
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+
+
+
+####################
+# all-services-job
+#####################
+  services_job:
+    needs: [changes]
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ matrix.package }}
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - name: check out to repository
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+          
+      - name: Build with Maven
+        run: |
+          echo "Building ${{ matrix.package }}"
+            
+      - name: SonarCloud Scan
+        run: |
+          echo "Running SonarCloud Scan for ${{ matrix.package }}"
+            
+      - name: Build the Docker image
+        id: build
+        run: |
+          echo "Building Docker image for ${{ matrix.package }}"
+
+      - name: Trigger integration test
+        run: |
+          echo "Triggering integration test for ${{ matrix.package }}"
+
+
+
+
+
+

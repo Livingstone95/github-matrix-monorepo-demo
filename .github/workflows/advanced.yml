@@ -1,0 +1,172 @@
+name: DevSecOps Complete Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  GITHUB_SHA: ${{ github.sha }}
+  GITHUB_REF: ${{ github.ref }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Filter changed paths
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            service-icecream:
+              - 'service-icecream/**'
+            service-popcord:
+              - 'service-popcord/**'
+            service-ondo:
+              - 'service-ondo/**'
+
+  compile:
+    needs: [changes]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: compile-${{ matrix.package }}
+    env:
+      IMAGE: ${{ matrix.package }}/dev
+      SERVICE_NAME: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+          
+      - name: Build with Maven
+        run: |
+          echo "Building ${{ matrix.package }}"
+
+
+  generate_sbom:
+    needs: [changes, compile]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: generate-sbom-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Generate SBOM
+        run: |
+          echo "Generating SBOM"
+
+      - name: Upload SBOM to DefectDojo
+        run: |
+          echo "Uploading SBOM to DefectDojo"
+
+  unit_test:
+    needs: [changes, compile]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: unit-test-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+  license_checker:
+    needs: [changes, compile]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: license_checker${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+  sca:
+    needs: [changes, compile]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: sca-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Dependency check
+        uses: dependency-check/Dependency-Check_Action@main
+        id: Depcheck
+        with:
+          project: 'test'
+          path: '.'
+          format: 'HTML'
+          out: 'reports'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+
+      - name: Upload dependency-check to DefectDojo
+        run: |
+          echo "Uploading dependency-check report to DefectDojo"
+
+  sast:
+    needs: [changes, compile, sca, license_checker, generate_sbom, unit_test]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: sast-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+  docker_build:
+    needs: [changes, compile, sca, license_checker, generate_sbom, unit_test, sast]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: docker-build-${{ matrix.package }}
+    env:
+      IMAGE: ${{ matrix.package }}/pistis-infra-devsecops
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+  image_analysis:
+    needs: [changes, compile, sca, license_checker, generate_sbom, unit_test, sast, docker_build]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: image-analysis-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+  push_image:
+    needs: [changes, compile, sca, license_checker, generate_sbom, unit_test, sast, docker_build, image_analysis]
+    strategy:
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: push-image-${{ matrix.package }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
